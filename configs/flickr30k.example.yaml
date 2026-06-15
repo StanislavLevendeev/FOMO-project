@@ -1,0 +1,20 @@
+dataset_name: flickr30k
+
+source:
+  kind: hf_flickr30k
+  hf_dataset: nlphuji/flickr30k
+  streaming: true
+
+local:
+  raw_root: /absolute/path/to/local/datasets/flickr30k
+  output_root: /absolute/path/to/local/tinyclip_features/flickr30k
+
+metadata:
+  save_raw_images: true
+  use_source_split_if_available: true
+  fallback_split_seed: 42
+  fallback_split_ratios:
+    train: 0.90
+    validation: 0.05
+    test: 0.05
+

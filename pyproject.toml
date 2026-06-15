@@ -9,18 +9,21 @@ requires-python = ">=3.10"
 dependencies = [
   "datasets>=3.6.0,<4.0.0",
   "huggingface_hub>=0.23.0",
+  "open_clip_torch>=2.24.0",
   "pandas>=2.0.0",
   "pyarrow>=15.0.0",
   "Pillow>=10.0.0",
   "PyYAML>=6.0.0",
+  "torch>=2.2.0",
+  "transformers>=4.41.0",
   "tqdm>=4.66.0",
 ]
-
 [project.scripts]
-create-config = "data_pipeline.create_local_config:main"
 build-metadata = "data_pipeline.build_metadata:main"
 prepare-flickr30k = "data_pipeline.run_prepare_flickr30k:main"
 run-pipeline = "data_pipeline.run_pipeline:main"
+generate-image-embeddings = "data_pipeline.generate_image_embeddings:main"
+generate-text-embeddings = "data_pipeline.generate_text_embeddings:main"
 
 [tool.setuptools]
 packages = ["data_pipeline", "data_pipeline.sources"]

@@ -18,3 +18,20 @@ metadata:
     validation: 0.05
     test: 0.05
 
+embeddings:
+  batch_size_text: 128
+  batch_size_image: 32
+  device: auto
+  normalize: true
+
+  text_encoder:
+    kind: hf_clip_text
+    model_name: wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M
+    max_length: 77
+    output_name: tinyclip_vit_61m_32_text_29m_laion400m
+
+  image_encoder:
+    kind: dinov2
+    model_name: facebook/dinov2-base
+    output_name: dinov2_base
+    pooling: cls

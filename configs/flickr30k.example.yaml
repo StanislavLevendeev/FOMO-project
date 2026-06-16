@@ -1,0 +1,42 @@
+dataset_name: flickr30k
+
+source:
+  kind: hf_flickr30k
+  hf_dataset: nlphuji/flickr30k
+  streaming: true
+
+local:
+  raw_root: /absolute/path/to/local/datasets/flickr30k
+  output_root: /absolute/path/to/local/tinyclip_features/flickr30k
+
+metadata:
+  save_raw_images: true
+  use_source_split_if_available: true
+  fallback_split_seed: 42
+  fallback_split_ratios:
+    train: 0.90
+    validation: 0.05
+    test: 0.05
+
+embeddings:
+  batch_size_text: 128
+  batch_size_image: 32
+  device: auto
+  normalize: true
+
+  text_encoder:
+    kind: hf_clip_text
+    model_name: wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M
+    max_length: 77
+    output_name: tinyclip_vit_61m_32_text_29m_laion400m
+
+  image_encoder:
+    kind: dinov2
+    model_name: facebook/dinov2-base
+    output_name: dinov2_base
+    pooling: cls
+
+publish:
+  hf_repo_id: your-username-or-org/tinyclip-flickr30k-features
+  private: true
+  max_shard_size: 500MB

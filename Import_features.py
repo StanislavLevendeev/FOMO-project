@@ -19,4 +19,3 @@ train_image_data = load_dataset(
     cache_dir=short_cache
 )
 
-print(train_text_data)

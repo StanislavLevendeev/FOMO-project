@@ -27,14 +27,13 @@ class TinyCLIPFeatureStore:
     @classmethod
     def from_hub(
         cls,
-        repo_id: str,
         split: str,
         image_config: str,
         text_config: str,
         cache_dir: str | Path | None = None,
     ) -> "TinyCLIPFeatureStore":
         cache_dir_str = str(cache_dir) if cache_dir else None
-
+        repo_id = "StanislavLev/tiny-clip-image-encoders-adapter"
         image_ds = load_dataset(
             repo_id,
             image_config,

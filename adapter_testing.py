@@ -32,11 +32,16 @@ adapter.eval() # Set adapter to evaluation mode
 # ==========================================
 # 3. Process Live Data & Extract Features
 # ==========================================
-image_url = "https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=1200&q=80"
+# Group of cyclists
+#image_url = "https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=1200&q=80"
+
+# TT/triathlon bike
+image_url = "https://trihard.nl/wp-content/uploads/2025/12/vanquish.png"
+
 image = Image.open(requests.get(image_url, stream=True).raw)
 
 # Adjust your labels to stress-test the model's fine-grained classification:
-text = ["a road racing bike", "a time-trial triathlon bike", "a mountain bike", "a group of cyclists"]
+text = ["a road racing bike", "a time-trial bike", "a mountain bike", "a group of cyclists"]
 
 with torch.no_grad():
     # A. Get DINOv2 features [1, 768]

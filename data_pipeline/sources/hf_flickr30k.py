@@ -25,6 +25,7 @@ def build_flickr30k_metadata(config: dict[str, Any], raw_root: Path) -> list[Met
     dataset_name = config.get("dataset_name", "flickr30k")
     metadata_cfg = config.get("metadata", {})
     source_cfg = config["source"]
+    hf_dataset = source_cfg.get("hf_dataset", "nlphuji/flickr30k")
 
     save_raw_images = bool(metadata_cfg.get("save_raw_images", True))
     use_source_split = bool(metadata_cfg.get("use_source_split_if_available", True))
@@ -44,6 +45,7 @@ def build_flickr30k_metadata(config: dict[str, Any], raw_root: Path) -> list[Met
         image_id = str(item.get("img_id") or Path(str(item["filename"])).stem)
         file_name = str(item.get("filename") or f"{image_id}.jpg")
         relative_image_path = f"images/{file_name}"
+        image_uri = resolve_image_uri(item, source_cfg, relative_image_path, file_name, image_id)
 
         source_split = normalize_split(item.get("split")) if use_source_split else None
         split = source_split or deterministic_split(
@@ -78,13 +80,43 @@ def build_flickr30k_metadata(config: dict[str, Any], raw_root: Path) -> list[Met
                     caption_index=caption_index,
                     caption=str(caption),
                     file_name=file_name,
-                    relative_image_path=relative_image_path,
+                    image_uri=image_uri,
                     split=split,
-                    source=source_cfg.get("hf_dataset", "nlphuji/flickr30k"),
+                    source=hf_dataset,
                 )
             )
 
     return rows
+
+
+def resolve_image_uri(
+    item: dict[str, Any],
+    source_cfg: dict[str, Any],
+    relative_image_path: str,
+    file_name: str,
+    image_id: str,
+) -> str:
+    if source_cfg.get("image_url_template"):
+        return source_cfg["image_url_template"].format(
+            relative_image_path=relative_image_path,
+            file_name=file_name,
+            filename=file_name,
+            image_id=image_id,
+        )
+
+    for key in ("image_url", "url", "original_url"):
+        value = item.get(key)
+        if value:
+            return str(value)
+
+    image_obj = item.get("image")
+    if isinstance(image_obj, dict):
+        for key in ("url", "path"):
+            value = image_obj.get(key)
+            if value and str(value).startswith(("http://", "https://")):
+                return str(value)
+
+    return relative_image_path
 
 
 def save_image_if_needed(image_obj: Any, output_path: Path) -> None:

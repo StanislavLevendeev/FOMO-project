@@ -14,7 +14,7 @@ REQUIRED_COLUMNS = {
     "caption_index",
     "caption",
     "file_name",
-    "relative_image_path",
+    "image_uri",
     "split",
     "source",
 }
@@ -49,7 +49,7 @@ def validate_metadata_frame(df: pd.DataFrame) -> None:
 
 def validate_image_paths(df: pd.DataFrame, raw_root: Path) -> None:
     missing_paths = []
-    for relative_path in sorted(df["relative_image_path"].unique()):
+    for relative_path in sorted(df["file_name"].map(lambda name: f"images/{name}").unique()):
         if not (raw_root / relative_path).exists():
             missing_paths.append(relative_path)
             if len(missing_paths) >= 10:

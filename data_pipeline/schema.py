@@ -14,7 +14,7 @@ class MetadataRow:
     caption_index: int
     caption: str
     file_name: str
-    relative_image_path: str
+    image_uri: str
     split: str
     source: str
 

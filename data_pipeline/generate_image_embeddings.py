@@ -62,7 +62,7 @@ def generate_dinov2_embeddings(
     with torch.inference_mode():
         for batch_df in tqdm(list(batches(list(images_df.index), batch_size)), desc="Encoding DINOv2 images"):
             chunk = images_df.loc[list(batch_df)]
-            pil_images = [load_rgb_image(raw_root / path) for path in chunk["relative_image_path"]]
+            pil_images = [load_rgb_image(resolve_local_image_path(row, raw_root)) for _, row in chunk.iterrows()]
             inputs = processor(images=pil_images, return_tensors="pt").to(device)
             outputs = model(**inputs)
 
@@ -126,7 +126,7 @@ def generate_openclip_image_embeddings(
     with torch.inference_mode():
         for batch_df in tqdm(list(batches(list(images_df.index), batch_size)), desc="Encoding OpenCLIP images"):
             chunk = images_df.loc[list(batch_df)]
-            image_tensors = [preprocess(load_rgb_image(raw_root / path)) for path in chunk["relative_image_path"]]
+            image_tensors = [preprocess(load_rgb_image(resolve_local_image_path(row, raw_root))) for _, row in chunk.iterrows()]
             image_batch = torch.stack(image_tensors).to(device)
             features = model.encode_image(image_batch)
             features = l2_normalize(features.float(), normalize).cpu().numpy()
@@ -156,8 +156,17 @@ def generate_openclip_image_embeddings(
 
 def unique_images(metadata_path: Path) -> pd.DataFrame:
     metadata = pd.read_parquet(metadata_path)
-    columns = ["image_id", "split", "file_name", "relative_image_path"]
+    if "image_uri" not in metadata.columns and "relative_image_path" in metadata.columns:
+        metadata["image_uri"] = metadata["relative_image_path"]
+    columns = ["image_id", "split", "file_name", "image_uri"]
     return metadata[columns].drop_duplicates("image_id").sort_values("image_id").reset_index(drop=True)
+
+
+def resolve_local_image_path(row: pd.Series, raw_root: Path) -> Path:
+    image_uri = str(row.get("image_uri", ""))
+    if image_uri and not image_uri.startswith(("http://", "https://", "zip://")):
+        return raw_root / image_uri
+    return raw_root / "images" / str(row["file_name"])
 
 
 def load_rgb_image(path: Path) -> Image.Image:
@@ -174,11 +183,11 @@ def image_embedding_row(
     pretrained: str | None,
     output_name: str,
 ) -> dict:
-    return {
+    row_data = {
         "image_id": row["image_id"],
         "split": row["split"],
         "file_name": row["file_name"],
-        "relative_image_path": row["relative_image_path"],
+        "image_uri": row["image_uri"],
         "image_encoder_kind": encoder_kind,
         "image_encoder_name": model_name,
         "image_encoder_pretrained": pretrained,
@@ -186,6 +195,7 @@ def image_embedding_row(
         "embedding_dim": int(embedding.shape[0]),
         "embedding": embedding.astype("float32").tolist(),
     }
+    return row_data
 
 
 def image_manifest(

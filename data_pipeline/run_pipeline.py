@@ -6,6 +6,7 @@ from data_pipeline.config import load_config
 from data_pipeline.publish_hf_dataset import publish_hf_dataset
 from data_pipeline.build_metadata import build_metadata
 from data_pipeline.generate_image_embeddings import generate_image_embeddings
+from data_pipeline.generate_streaming_features import generate_streaming_features
 from data_pipeline.generate_text_embeddings import generate_text_embeddings
 from data_pipeline.runtime import safe_exit_if_requested
 
@@ -15,7 +16,7 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument(
         "--stage",
-        choices=["metadata", "text_embeddings", "image_embeddings", "all_local", "all"],
+        choices=["metadata", "text_embeddings", "image_embeddings", "streaming_features", "all_local", "all"],
         default="metadata",
         help="Pipeline stage to run. Embedding and publish stages can be added later.",
     )
@@ -34,6 +35,8 @@ def main() -> None:
         generate_text_embeddings(args.config)
     elif args.stage == "image_embeddings":
         generate_image_embeddings(args.config)
+    elif args.stage == "streaming_features":
+        generate_streaming_features(args.config)
     elif args.stage == "all_local":
         build_metadata(args.config)
         generate_text_embeddings(args.config)

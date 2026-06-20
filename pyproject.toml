@@ -24,6 +24,7 @@ prepare-flickr30k = "data_pipeline.run_prepare_flickr30k:main"
 run-pipeline = "data_pipeline.run_pipeline:main"
 generate-image-embeddings = "data_pipeline.generate_image_embeddings:main"
 generate-text-embeddings = "data_pipeline.generate_text_embeddings:main"
+generate-streaming-features = "data_pipeline.generate_streaming_features:main"
 publish-hf-dataset = "data_pipeline.publish_hf_dataset:main"
 
 [tool.setuptools]

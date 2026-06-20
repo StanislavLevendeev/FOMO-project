@@ -15,6 +15,7 @@ from tqdm import tqdm
 from data_pipeline.config import load_config, require_abs_path
 from data_pipeline.embedding_utils import batches, l2_normalize, resolve_device, save_split_parquets, write_manifest
 from data_pipeline.paths import encoder_output_dir, metadata_files, output_root, read_metadata
+from data_pipeline.runtime import safe_exit_if_requested
 
 
 def generate_image_embeddings(config_path: str | Path) -> Path:
@@ -366,8 +367,15 @@ def image_manifest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate frozen image embeddings from local images.")
     parser.add_argument("--config", required=True)
+    parser.add_argument(
+        "--safe-exit",
+        action="store_true",
+        help="Exit with os._exit(0) after successful completion to avoid native-library shutdown crashes on some clusters.",
+    )
     args = parser.parse_args()
     generate_image_embeddings(args.config)
+    config = load_config(args.config)
+    safe_exit_if_requested(args.safe_exit or bool(config.get("runtime", {}).get("safe_exit", False)))
 
 
 if __name__ == "__main__":

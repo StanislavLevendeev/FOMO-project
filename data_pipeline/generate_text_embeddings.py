@@ -7,29 +7,40 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from data_pipeline.config import load_config, require_abs_path
-from data_pipeline.embedding_utils import batches, l2_normalize, resolve_device, save_split_parquets, write_manifest
+from data_pipeline.config import load_config
+from data_pipeline.embedding_utils import (
+    batches,
+    l2_normalize,
+    resolve_device,
+    save_split_parquets,
+    write_manifest,
+)
+from data_pipeline.paths import (
+    encoder_output_dir,
+    metadata_files,
+    read_metadata,
+)
 
 DEFAULT_TEXT_MODEL = "wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M"
 
 
 def generate_text_embeddings(config_path: str | Path) -> Path:
     config = load_config(config_path)
-    output_root = require_abs_path(config["local"]["output_root"], "local.output_root")
-
-    metadata_path = output_root / "metadata" / "metadata.parquet"
-    if not metadata_path.exists():
-        raise FileNotFoundError(f"Metadata not found: {metadata_path}")
 
     embeddings_cfg = config.get("embeddings", {})
     text_cfg = embeddings_cfg.get("text_encoder", {})
     kind = str(text_cfg.get("kind", "hf_clip_text")).lower()
     if kind not in {"hf_clip_text", "tiny_clip"}:
-        raise ValueError("Only embeddings.text_encoder.kind=hf_clip_text is implemented for now")
+        raise ValueError(
+            "Supported text encoder kinds: hf_clip_text, tiny_clip"
+        )
 
     batch_size = int(embeddings_cfg.get("batch_size_text", 128))
     normalize = bool(embeddings_cfg.get("normalize", True))
     device = resolve_device(embeddings_cfg.get("device", "auto"))
+
+    metadata = read_metadata(config)
+    metadata = metadata.sort_values("caption_id").reset_index(drop=True)
 
     model_name = text_cfg.get("model_name", DEFAULT_TEXT_MODEL)
     output_name = text_cfg.get("output_name", model_name).replace("/", "_")
@@ -38,16 +49,18 @@ def generate_text_embeddings(config_path: str | Path) -> Path:
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = CLIPTextModelWithProjection.from_pretrained(model_name)
-    max_length = int(text_cfg.get("max_length", model.config.max_position_embeddings))
+    max_length = int(
+        text_cfg.get("max_length", model.config.max_position_embeddings)
+    )
     model = model.to(device)
     model.eval()
 
-    metadata = pd.read_parquet(metadata_path)
-    metadata = metadata.sort_values("caption_id").reset_index(drop=True)
-
     rows = []
     with torch.inference_mode():
-        for batch_df in tqdm(list(batches(list(metadata.index), batch_size)), desc="Encoding text"):
+        for batch_df in tqdm(
+            list(batches(list(metadata.index), batch_size)),
+            desc="Encoding text",
+        ):
             chunk = metadata.loc[list(batch_df)]
             tokens = tokenizer(
                 chunk["caption"].astype(str).tolist(),
@@ -74,14 +87,21 @@ def generate_text_embeddings(config_path: str | Path) -> Path:
                     }
                 )
 
-    output_dir = output_root / "text_embeddings" / output_name
+    output_dir = encoder_output_dir(config, "text_embeddings", output_name)
     embeddings = pd.DataFrame(rows)
-    save_split_parquets(embeddings, output_dir)
+    shard_rows = text_cfg.get("max_rows_per_file") or embeddings_cfg.get(
+        "max_rows_per_file"
+    )
+    save_split_parquets(
+        embeddings,
+        output_dir,
+        max_rows_per_file=int(shard_rows) if shard_rows else None,
+    )
     write_manifest(
         output_dir,
         {
             "embedding_type": "text",
-            "metadata_path": str(metadata_path),
+            "metadata_files": [str(path) for path in metadata_files(config)],
             "encoder_kind": kind,
             "model_name": model_name,
             "pretrained": None,
@@ -89,7 +109,11 @@ def generate_text_embeddings(config_path: str | Path) -> Path:
             "normalized": normalize,
             "num_rows": int(len(embeddings)),
             "num_captions": int(embeddings["caption_id"].nunique()),
-            "embedding_dim": int(embeddings["embedding_dim"].iloc[0]) if len(embeddings) else None,
+            "embedding_dim": (
+                int(embeddings["embedding_dim"].iloc[0])
+                if len(embeddings)
+                else None
+            ),
         },
     )
 
@@ -98,7 +122,9 @@ def generate_text_embeddings(config_path: str | Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate frozen text embeddings from metadata.")
+    parser = argparse.ArgumentParser(
+        description="Generate frozen text embeddings from metadata."
+    )
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
     generate_text_embeddings(args.config)

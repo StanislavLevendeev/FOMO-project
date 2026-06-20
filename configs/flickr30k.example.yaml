@@ -10,7 +10,7 @@ local:
   output_root: /absolute/path/to/local/tinyclip_features/flickr30k
 
 metadata:
-  save_raw_images: true
+  save_raw_images: false
   use_source_split_if_available: true
   fallback_split_seed: 42
   fallback_split_ratios:
@@ -31,9 +31,9 @@ embeddings:
     output_name: tinyclip_vit_61m_32_text_29m_laion400m
 
   image_encoder:
-    kind: dinov2
-    model_name: facebook/dinov2-base
-    output_name: dinov2_base
+    kind: dinov3
+    model_name: facebook/dinov3-vits16-pretrain-lvd1689m
+    output_name: dinov3_vits16_pretrain_lvd1689m
     pooling: cls
 
 publish:

@@ -3,14 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import pandas as pd
-from datasets import Dataset, DatasetDict
-from huggingface_hub import HfApi, upload_file
+import yaml
+from huggingface_hub import HfApi
 
-from data_pipeline.config import load_config, require_abs_path
-
-
-SPLITS = ("train", "validation", "test")
+from data_pipeline.config import load_config
+from data_pipeline.paths import dataset_name, dataset_root, output_root
 
 
 def publish_hf_dataset(
@@ -19,116 +16,120 @@ def publish_hf_dataset(
     include: str = "all",
 ) -> None:
     config = load_config(config_path)
-    output_root = require_abs_path(config["local"]["output_root"], "local.output_root")
-
     publish_cfg = config.get("publish", {})
     repo_id = repo_id or publish_cfg.get("hf_repo_id")
     if not repo_id or repo_id == "your-username-or-org/tinyclip-flickr30k-features":
         raise ValueError("Pass --repo-id or set publish.hf_repo_id in your local config")
 
     private = bool(publish_cfg.get("private", True))
-    max_shard_size = publish_cfg.get("max_shard_size", "500MB")
+    name = dataset_name(config)
+    root = dataset_root(config)
+    if not root.exists():
+        raise FileNotFoundError(f"Dataset output folder not found: {root}")
 
     api = HfApi()
     api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
 
-    if include in {"all", "metadata"}:
-        publish_metadata(output_root, repo_id, max_shard_size)
-
-    if include in {"all", "text"}:
-        publish_embedding_group(output_root / "text_embeddings", repo_id, "text_embeddings", max_shard_size)
-
-    if include in {"all", "image"}:
-        publish_embedding_group(output_root / "image_embeddings", repo_id, "image_embeddings", max_shard_size)
-
-
-def publish_metadata(output_root: Path, repo_id: str, max_shard_size: str) -> None:
-    metadata_path = output_root / "metadata" / "metadata.parquet"
-    info_path = output_root / "metadata" / "dataset_info.json"
-    if not metadata_path.exists():
-        raise FileNotFoundError(f"Missing metadata: {metadata_path}")
-
-    df = pd.read_parquet(metadata_path)
-    dataset = frame_to_dataset_dict(df)
-    dataset.push_to_hub(
-        repo_id,
-        config_name="metadata",
-        max_shard_size=max_shard_size,
-        commit_message="Upload TinyCLIP metadata",
+    manifests_dir = write_shared_manifests(config)
+    upload_dataset_tree(api, repo_id, root, name, include)
+    api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(manifests_dir),
+        path_in_repo="manifests",
+        commit_message=f"Upload manifests for {name}",
     )
 
-    if info_path.exists():
-        upload_file(
-            path_or_fileobj=str(info_path),
-            path_in_repo="manifests/metadata/dataset_info.json",
+    print(f"Published dataset folder: {name}")
+
+
+def upload_dataset_tree(api: HfApi, repo_id: str, root: Path, name: str, include: str) -> None:
+    if include == "all":
+        api.upload_folder(
             repo_id=repo_id,
             repo_type="dataset",
-            commit_message="Upload metadata manifest",
+            folder_path=str(root),
+            path_in_repo=name,
+            ignore_patterns=["**/metadata.csv"],
+            commit_message=f"Upload {name}",
         )
-
-    print("Published config: metadata")
-
-
-def publish_embedding_group(group_dir: Path, repo_id: str, group_name: str, max_shard_size: str) -> None:
-    if not group_dir.exists():
-        print(f"Skipping missing folder: {group_dir}")
         return
 
-    for embedding_dir in sorted(path for path in group_dir.iterdir() if path.is_dir()):
-        split_paths = {split: embedding_dir / f"{split}.parquet" for split in SPLITS}
-        existing = {split: path for split, path in split_paths.items() if path.exists()}
-        if not existing:
+    folder_by_include = {
+        "metadata": root / "metadata",
+        "text": root / "text_embeddings",
+        "image": root / "image_embeddings",
+    }
+    folder = folder_by_include[include]
+    if not folder.exists():
+        print(f"Skipping missing folder: {folder}")
+        return
+
+    api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(folder),
+        path_in_repo=f"{name}/{folder.name}",
+        ignore_patterns=["metadata.csv"],
+        commit_message=f"Upload {name}/{folder.name}",
+    )
+
+
+def write_shared_manifests(config: dict) -> Path:
+    root = output_root(config)
+    manifests_dir = root / "manifests"
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+
+    dataset_entries = []
+    text_encoders = []
+    image_encoders = []
+    for child in sorted(path for path in root.iterdir() if path.is_dir() and path.name != "manifests"):
+        metadata_path = child / "metadata"
+        if not metadata_path.exists():
             continue
-
-        dataset = parquet_files_to_dataset_dict(existing)
-        config_name = safe_config_name(f"{group_name}__{embedding_dir.name}")
-        dataset.push_to_hub(
-            repo_id,
-            config_name=config_name,
-            max_shard_size=max_shard_size,
-            commit_message=f"Upload {config_name}",
+        dataset_entries.append(
+            {
+                "name": child.name,
+                "metadata": f"{child.name}/metadata",
+                "dataset_info": f"{child.name}/metadata/dataset_info.json",
+            }
         )
+        text_encoders.extend(discover_encoder_dirs(child / "text_embeddings", child.name, "text_embeddings"))
+        image_encoders.extend(discover_encoder_dirs(child / "image_embeddings", child.name, "image_embeddings"))
 
-        manifest_path = embedding_dir / "manifest.json"
-        if manifest_path.exists():
-            upload_file(
-                path_or_fileobj=str(manifest_path),
-                path_in_repo=f"manifests/{group_name}/{embedding_dir.name}/manifest.json",
-                repo_id=repo_id,
-                repo_type="dataset",
-                commit_message=f"Upload manifest for {config_name}",
-            )
+    datasets_manifest = {"datasets": dataset_entries}
 
-        print(f"Published config: {config_name}")
+    encoders_manifest = {
+        "encoders": {
+            "text": text_encoders,
+            "image": image_encoders,
+        }
+    }
 
-
-def frame_to_dataset_dict(df: pd.DataFrame) -> DatasetDict:
-    split_map = {}
-    for split in SPLITS:
-        split_df = df[df["split"] == split].reset_index(drop=True)
-        if len(split_df):
-            split_map[split] = Dataset.from_pandas(split_df, preserve_index=False)
-    if not split_map:
-        raise ValueError("No train/validation/test rows found")
-    return DatasetDict(split_map)
+    (manifests_dir / "datasets.yaml").write_text(yaml.safe_dump(datasets_manifest, sort_keys=False), encoding="utf-8")
+    (manifests_dir / "encoders.yaml").write_text(yaml.safe_dump(encoders_manifest, sort_keys=False), encoding="utf-8")
+    return manifests_dir
 
 
-def parquet_files_to_dataset_dict(paths_by_split: dict[str, Path]) -> DatasetDict:
-    split_map = {}
-    for split, path in paths_by_split.items():
-        df = pd.read_parquet(path)
-        split_map[split] = Dataset.from_pandas(df, preserve_index=False)
-    return DatasetDict(split_map)
-
-
-def safe_config_name(value: str) -> str:
-    return value.replace("/", "_").replace(" ", "_").lower()
+def discover_encoder_dirs(root: Path, dataset: str, group: str) -> list[dict[str, str]]:
+    if not root.exists():
+        return []
+    return [
+        {
+            "dataset": dataset,
+            "name": path.name,
+            "path": f"{dataset}/{group}/{path.name}",
+            "manifest": f"{dataset}/{group}/{path.name}/manifest.json",
+        }
+        for path in sorted(root.iterdir())
+        if path.is_dir()
+    ]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Publish TinyCLIP metadata and embeddings to a HF Dataset repo.")
+    parser = argparse.ArgumentParser(description="Publish TinyCLIP feature files to a HF Dataset repo.")
     parser.add_argument("--config", required=True)
-    parser.add_argument("--repo-id", default=None, help="Example: your-org/tinyclip-flickr30k-features")
+    parser.add_argument("--repo-id", default=None, help="Example: your-org/tinyclip-features")
     parser.add_argument("--include", choices=["all", "metadata", "text", "image"], default="all")
     args = parser.parse_args()
 

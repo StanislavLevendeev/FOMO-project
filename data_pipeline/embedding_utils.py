@@ -30,13 +30,20 @@ def batches(values: Sequence[T], batch_size: int) -> Iterable[Sequence[T]]:
         yield values[start : start + batch_size]
 
 
-def save_split_parquets(df: pd.DataFrame, output_dir: Path) -> list[str]:
+def save_split_parquets(df: pd.DataFrame, output_dir: Path, max_rows_per_file: int | None = None) -> list[str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     for split, split_df in df.groupby("split", sort=True):
-        path = output_dir / f"{split}.parquet"
-        split_df.to_parquet(path, index=False)
-        saved.append(str(path))
+        if max_rows_per_file and len(split_df) > max_rows_per_file:
+            for shard_index, start in enumerate(range(0, len(split_df), max_rows_per_file)):
+                shard_df = split_df.iloc[start : start + max_rows_per_file]
+                path = output_dir / f"{split}-{shard_index:05d}.parquet"
+                shard_df.to_parquet(path, index=False)
+                saved.append(str(path))
+        else:
+            path = output_dir / f"{split}.parquet"
+            split_df.to_parquet(path, index=False)
+            saved.append(str(path))
     return saved
 
 

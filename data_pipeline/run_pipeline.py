@@ -17,6 +17,7 @@ def main() -> None:
         default="metadata",
         help="Pipeline stage to run. Embedding and publish stages can be added later.",
     )
+    parser.add_argument("--repo-id", default=None)
     args = parser.parse_args()
 
     if args.stage == "metadata":

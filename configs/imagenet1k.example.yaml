@@ -1,27 +1,22 @@
 dataset_name: imagenet1k
 
 source:
-  kind: hf_table
-  hf_dataset: ILSVRC/imagenet-1k
+  kind: hf_imagenet1k
   split: validation
   streaming: true
-  image_column: image
-  image_url_column: url
-  caption_column: caption
-  id_column: key
-  max_rows: 1000000
+  max_rows: 50000
 
 local:
   output_root: '/home/jovyan/fomo/FOMO-project/data'
 
 metadata:
   save_raw_images: false
-  use_source_split_if_available: true
+  use_source_split_if_available: false
   max_rows_per_file: 100000
   fallback_split_seed: 42
   fallback_split_ratios:
-    train: 1.0
-    validation: 0.0
+    train: 0.0
+    validation: 1.0
     test: 0.0
 
 embeddings:

@@ -50,7 +50,8 @@ def resolve_caption(item: dict[str, Any], source_cfg: dict[str, Any], features=N
     caption_column = source_cfg.get("caption_column")
     if caption_column:
         caption = item.get(caption_column)
-        return str(caption) if caption else None
+        if caption:
+            return str(caption)
 
     label_column = source_cfg.get("label_column")
     if label_column:
@@ -101,7 +102,8 @@ def build_hf_table_metadata(config: dict[str, Any], raw_root: Path) -> list[Meta
 
     rows: list[MetadataRow] = []
     for index, item in enumerate(tqdm(iter_hf_table(config), desc=f"Reading {dataset_name}")):
-        image_id = str(item.get(id_column) if id_column else item.get("id", index))
+        raw_id = item.get(id_column) if id_column else item.get("id")
+        image_id = str(raw_id if raw_id is not None else index)
         caption = resolve_caption(item, source_cfg, features)
         image_uri = resolve_image_uri(item, source_cfg, image_id, index)
         if not caption:

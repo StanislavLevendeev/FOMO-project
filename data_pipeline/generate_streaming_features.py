@@ -35,8 +35,8 @@ DEFAULT_TEXT_MODEL = "wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M"
 
 def generate_streaming_features(config_path: str | Path) -> Path:
     config = load_config(config_path)
-    if config.get("source", {}).get("kind") != "hf_table":
-        raise ValueError("generate-streaming-features currently supports source.kind=hf_table")
+    if config.get("source", {}).get("kind") not in {"hf_table", "hf_imagenet1k"}:
+        raise ValueError("generate-streaming-features currently supports source.kind=hf_table or hf_imagenet1k")
 
     device = resolve_device(config.get("embeddings", {}).get("device", "auto"))
     normalize = bool(config.get("embeddings", {}).get("normalize", True))
@@ -54,20 +54,22 @@ def generate_streaming_features(config_path: str | Path) -> Path:
     text_encoder = load_text_encoder(config, device)
     image_encoder = load_image_encoder(config, device)
     writer = StreamingShardWriter(config, max_rows_per_file)
-    features = hf_table_features(config) if config.get("source", {}).get("label_column") else None
+    features = source_features(config)
 
     skipped = 0
+    read_rows = 0
     batch: list[PreparedItem] = []
 
     with torch.inference_mode():
-        for index, item in enumerate(tqdm(iter_hf_table(config), desc=f"Streaming {dataset_name(config)}")):
+        for index, item in enumerate(tqdm(iter_source(config), desc=f"Streaming {dataset_name(config)}")):
+            read_rows += 1
             prepared = prepare_item(config, item, index, features)
             if prepared is None:
                 skipped += 1
                 continue
 
             try:
-                prepared.image = image_obj_to_rgb(item.get(config["source"]["image_column"]))
+                prepared.image = image_obj_to_rgb(item.get(source_image_column(config)))
             except (OSError, TypeError, ValueError) as exc:
                 if not bool(config.get("embeddings", {}).get("image_encoder", {}).get("skip_failed_images", False)):
                     raise
@@ -83,9 +85,49 @@ def generate_streaming_features(config_path: str | Path) -> Path:
         if batch:
             encode_and_buffer(batch, text_encoder, image_encoder, writer, normalize)
 
-    writer.close(skipped=skipped)
+    writer.close(skipped=skipped, read_rows=read_rows)
+    if writer.total_rows == 0:
+        source = config.get("source", {})
+        raise ValueError(
+            "Streaming read source rows but wrote 0 feature rows. "
+            "Check source column names. For ImageNet-style datasets use "
+            "`image_column: image`, `label_column: label`, and remove stale "
+            "`caption_column`, `image_url_column`, or `id_column` settings "
+            f"that are not present in {source.get('hf_dataset', 'the dataset')}."
+        )
     print(f"Saved streaming features: {dataset_root(config)}")
     return dataset_root(config)
+
+
+def iter_source(config: dict):
+    source_kind = config["source"]["kind"]
+    if source_kind == "hf_table":
+        yield from iter_hf_table(config)
+        return
+    if source_kind == "hf_imagenet1k":
+        from data_pipeline.sources.hf_imagenet1k import iter_hf_imagenet1k
+
+        yield from iter_hf_imagenet1k(config)
+        return
+    raise ValueError(f"Unsupported source.kind: {source_kind}")
+
+
+def source_features(config: dict):
+    source_kind = config["source"]["kind"]
+    if source_kind == "hf_table":
+        return hf_table_features(config) if config.get("source", {}).get("label_column") else None
+    if source_kind == "hf_imagenet1k":
+        from data_pipeline.sources.hf_imagenet1k import imagenet_features
+
+        return imagenet_features(config)
+    return None
+
+
+def source_image_column(config: dict) -> str:
+    source = config["source"]
+    if source["kind"] == "hf_imagenet1k":
+        return source.get("image_column", "image")
+    return source["image_column"]
 
 
 def resolve_streaming_batch_size(config: dict) -> int:
@@ -223,11 +265,18 @@ def load_image_encoder(config: dict, device: torch.device) -> ImageEncoder:
 
 def prepare_item(config: dict, item: dict[str, Any], index: int, features=None) -> PreparedItem | None:
     source_cfg = config["source"]
+    if source_cfg["kind"] == "hf_imagenet1k":
+        from data_pipeline.sources.hf_imagenet1k import imagenet_metadata_dict
+
+        metadata = imagenet_metadata_dict(config, item, index, features)
+        return PreparedItem(metadata=metadata) if metadata is not None else None
+
     metadata_cfg = config.get("metadata", {})
     dataset = dataset_name(config)
 
     id_column = source_cfg.get("id_column")
-    image_id = str(item.get(id_column) if id_column else item.get("id", index))
+    raw_id = item.get(id_column) if id_column else item.get("id")
+    image_id = str(raw_id if raw_id is not None else index)
     caption = resolve_caption(item, source_cfg, features)
     image_uri = resolve_image_uri(item, source_cfg, image_id, index)
     if not caption:
@@ -351,6 +400,10 @@ class StreamingShardWriter:
         if len(self.metadata_buffers[split]) >= self.max_rows_per_file:
             self.flush_split(split)
 
+    @property
+    def total_rows(self) -> int:
+        return int(sum(self.counts.values()))
+
     def flush_split(self, split: str) -> None:
         if not self.metadata_buffers[split]:
             return
@@ -366,13 +419,14 @@ class StreamingShardWriter:
         self.image_buffers[split].clear()
         self.shard_indices[split] += 1
 
-    def close(self, skipped: int) -> None:
+    def close(self, skipped: int, read_rows: int) -> None:
         for split in list(self.metadata_buffers):
             self.flush_split(split)
 
         info = {
             "dataset_name": dataset_name(self.config),
-            "num_rows": int(sum(self.counts.values())),
+            "num_rows": self.total_rows,
+            "source_rows_read": int(read_rows),
             "split_counts_rows": dict(sorted(self.counts.items())),
             "skipped_rows": int(skipped),
             "streaming_fused": True,
@@ -384,7 +438,7 @@ class StreamingShardWriter:
             {
                 "embedding_type": "text",
                 "streaming_fused": True,
-                "num_rows": int(sum(self.counts.values())),
+                "num_rows": self.total_rows,
             },
         )
         write_manifest(
@@ -392,7 +446,7 @@ class StreamingShardWriter:
             {
                 "embedding_type": "image",
                 "streaming_fused": True,
-                "num_rows": int(sum(self.counts.values())),
+                "num_rows": self.total_rows,
             },
         )
 

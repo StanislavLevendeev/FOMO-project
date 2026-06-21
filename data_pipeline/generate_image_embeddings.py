@@ -224,8 +224,14 @@ def iter_loaded_image_batches(
     image_column = source_cfg.get("image_column")
     use_source_column = bool(image_cfg.get("use_source_image_column", True))
 
-    if source_cfg.get("kind") == "hf_table" and image_column and use_source_column:
-        yield from iter_source_image_batches(config, images_df, image_column, batch_size, skip_failed_images)
+    if source_cfg.get("kind") in {"hf_table", "hf_imagenet1k"} and use_source_column:
+        yield from iter_source_image_batches(
+            config,
+            images_df,
+            image_column or "image",
+            batch_size,
+            skip_failed_images,
+        )
         return
 
     for batch_df in batches(list(images_df.index), batch_size):
@@ -240,15 +246,12 @@ def iter_source_image_batches(
     batch_size: int,
     skip_failed_images: bool,
 ):
-    from data_pipeline.sources.hf_table import iter_hf_table
-
     source_cfg = config["source"]
-    id_column = source_cfg.get("id_column")
     rows_by_image_id = {str(row["image_id"]): row for _, row in images_df.iterrows()}
     batch = []
 
-    for index, item in enumerate(iter_hf_table(config)):
-        image_id = str(item.get(id_column) if id_column else item.get("id", index))
+    for index, item in enumerate(iter_embedding_source(config)):
+        image_id = embedding_source_image_id(config, item, index)
         row = rows_by_image_id.get(image_id)
         if row is None:
             continue
@@ -268,6 +271,33 @@ def iter_source_image_batches(
 
     if batch:
         yield batch
+
+
+def iter_embedding_source(config: dict):
+    source_kind = config["source"].get("kind")
+    if source_kind == "hf_table":
+        from data_pipeline.sources.hf_table import iter_hf_table
+
+        yield from iter_hf_table(config)
+        return
+    if source_kind == "hf_imagenet1k":
+        from data_pipeline.sources.hf_imagenet1k import iter_hf_imagenet1k
+
+        yield from iter_hf_imagenet1k(config)
+        return
+    raise ValueError(f"Unsupported source.kind for source image streaming: {source_kind}")
+
+
+def embedding_source_image_id(config: dict, item: dict, index: int) -> str:
+    source_kind = config["source"].get("kind")
+    if source_kind == "hf_imagenet1k":
+        from data_pipeline.sources.hf_imagenet1k import imagenet_image_id
+
+        return imagenet_image_id(config, item, index)
+
+    id_column = config["source"].get("id_column")
+    raw_id = item.get(id_column) if id_column else item.get("id")
+    return str(raw_id if raw_id is not None else index)
 
 
 def load_image_batch(chunk: pd.DataFrame, raw_root: Path, skip_failed_images: bool) -> list[tuple[pd.Series, Image.Image]]:

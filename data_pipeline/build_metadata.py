@@ -10,6 +10,7 @@ from data_pipeline.config import load_config, require_abs_path
 from data_pipeline.embedding_utils import save_split_parquets
 from data_pipeline.paths import dataset_name, dataset_root, metadata_dir
 from data_pipeline.sources.hf_flickr30k import build_flickr30k_metadata
+from data_pipeline.sources.hf_imagenet1k import build_imagenet1k_metadata
 from data_pipeline.sources.hf_table import build_hf_table_metadata
 from data_pipeline.validate_metadata import validate_image_paths, validate_metadata_frame
 
@@ -25,6 +26,8 @@ def build_metadata(config_path: str | Path) -> Path:
     source_kind = config["source"]["kind"]
     if source_kind == "hf_flickr30k":
         rows = build_flickr30k_metadata(config=config, raw_root=raw_root)
+    elif source_kind == "hf_imagenet1k":
+        rows = build_imagenet1k_metadata(config=config, raw_root=raw_root)
     elif source_kind == "hf_table":
         rows = build_hf_table_metadata(config=config, raw_root=raw_root)
     else:

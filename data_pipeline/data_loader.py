@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+# Fix for Windows path too long errors when downloading from Hugging Face Hub
+os.environ["HF_HUB_CACHE"] = "C:/hf_cache/hub"
+os.environ["HF_DATASETS_CACHE"] = "C:/hf_cache/datasets"
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -117,3 +122,80 @@ class TinyCLIPFeatureStore:
     def get_captions(self, image_id: str) -> list[str]:
         self._ensure_metadata_loaded()
         return self.image_id_to_captions.get(image_id, [])
+
+class LAIONFeatureStore:
+    def __init__(
+        self,
+        repo_id: str,
+        split: str,
+        cache_dir: Path | None,
+        image_ds: Any,
+        text_ds: Any,
+    ):
+        self.repo_id = repo_id
+        self.split = split
+        self.cache_dir = cache_dir
+        
+        self.image_ds = image_ds
+        self.text_ds = text_ds
+        
+        print("Loading embeddings into memory...")
+        # Extract only the "embedding" column to avoid allocating GBs of memory for string columns
+        image_embeddings_np = image_ds.with_format("numpy", columns=["embedding"])[:]["embedding"]
+        text_embeddings_np = text_ds.with_format("numpy", columns=["embedding"])[:]["embedding"]
+        
+        # Convert to contiguous PyTorch tensors (zero-copy from numpy)
+        self.image_embeddings = torch.from_numpy(image_embeddings_np)
+        self.text_embeddings = torch.from_numpy(text_embeddings_np)
+        
+        print("Building indexing dictionaries...")
+        # Extract column lists directly to avoid extremely slow row-by-row Arrow deserialization
+        image_ids = image_ds["image_id"]
+        self.image_id_to_image_idx = {
+            image_id: idx for idx, image_id in enumerate(image_ids)
+        }
+        
+        text_image_ids = text_ds["image_id"]
+        self.image_id_to_text_indices: dict[str, list[int]] = {}
+        for idx, image_id in enumerate(text_image_ids):
+            self.image_id_to_text_indices.setdefault(image_id, []).append(idx)
+        print("Indexing complete.")
+
+    @classmethod
+    def from_hub(
+        cls,
+        repo_id: str = "StanislavLev/tiny-clip-image-encoders-adapter",
+        cache_dir: str | Path | None = None,
+    ) -> "LAIONFeatureStore":
+        cache_dir_str = str(cache_dir) if cache_dir else None
+        
+        print(f"Loading LAION 1M dataset from {repo_id}...")
+        image_ds = load_dataset(
+            repo_id,
+            data_files="laion1m/image_embeddings/**/*.parquet",
+            split="train",
+            cache_dir=cache_dir_str,
+        )
+
+        text_ds = load_dataset(
+            repo_id,
+            data_files="laion1m/text_embeddings/**/*.parquet",
+            split="train",
+            cache_dir=cache_dir_str,
+        )
+
+        return cls(
+            repo_id=repo_id,
+            split="train",
+            cache_dir=Path(cache_dir) if cache_dir else None,
+            image_ds=image_ds,
+            text_ds=text_ds,
+        )
+
+    def get_image_embedding(self, image_id: str) -> torch.Tensor:
+        idx = self.image_id_to_image_idx[image_id]
+        return self.image_embeddings[idx]
+
+    def get_text_embeddings_for_image(self, image_id: str) -> torch.Tensor:
+        indices = self.image_id_to_text_indices[image_id]
+        return self.text_embeddings[indices]

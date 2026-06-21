@@ -1,8 +1,9 @@
-dataset_name: laion1m
+dataset_name: imagenet1k
 
 source:
   kind: hf_table
-  hf_dataset: RIW/laion_1m
+  hf_dataset: ILSVRC/imagenet-1k
+  split: validation
   streaming: true
   image_column: image
   image_url_column: url

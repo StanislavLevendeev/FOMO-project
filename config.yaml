@@ -12,7 +12,7 @@ model:
   input_dim: 384          # dimension of DINOv3 image embeddings
   output_dim: 512         # target dimension size (CLIP text embeddings)
 
-# Architectures list as requested
+# Architectures list
 architectures:
   simple_linear:
     type: "mlp"
@@ -42,4 +42,4 @@ training:
   lr: 0.001          
   weight_decay: 0.01
   epochs: 100
-  save_prefix: "dino_to_clip_adapter" # The architecture name will be appended automatically (e.g. dino_to_clip_adapter_residual_adapter.pt)
+  save_prefix: "dino_to_clip_adapter"

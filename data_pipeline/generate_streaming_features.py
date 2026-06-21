@@ -21,7 +21,12 @@ from data_pipeline.generate_image_embeddings import (
 from data_pipeline.paths import dataset_name, dataset_root, encoder_output_dir, metadata_dir
 from data_pipeline.runtime import safe_exit_if_requested
 from data_pipeline.schema import normalize_split
-from data_pipeline.sources.hf_table import iter_hf_table
+from data_pipeline.sources.hf_table import (
+    hf_table_features,
+    iter_hf_table,
+    resolve_caption,
+    resolve_image_uri,
+)
 from data_pipeline.splits import deterministic_split
 
 
@@ -49,13 +54,14 @@ def generate_streaming_features(config_path: str | Path) -> Path:
     text_encoder = load_text_encoder(config, device)
     image_encoder = load_image_encoder(config, device)
     writer = StreamingShardWriter(config, max_rows_per_file)
+    features = hf_table_features(config) if config.get("source", {}).get("label_column") else None
 
     skipped = 0
     batch: list[PreparedItem] = []
 
     with torch.inference_mode():
         for index, item in enumerate(tqdm(iter_hf_table(config), desc=f"Streaming {dataset_name(config)}")):
-            prepared = prepare_item(config, item, index)
+            prepared = prepare_item(config, item, index, features)
             if prepared is None:
                 skipped += 1
                 continue
@@ -215,22 +221,23 @@ def load_image_encoder(config: dict, device: torch.device) -> ImageEncoder:
     raise ValueError(f"Unsupported image encoder kind: {kind}")
 
 
-def prepare_item(config: dict, item: dict[str, Any], index: int) -> PreparedItem | None:
+def prepare_item(config: dict, item: dict[str, Any], index: int, features=None) -> PreparedItem | None:
     source_cfg = config["source"]
     metadata_cfg = config.get("metadata", {})
     dataset = dataset_name(config)
 
-    caption = item.get(source_cfg.get("caption_column", "caption"))
-    image_uri = item.get(source_cfg.get("image_uri_column", source_cfg.get("image_url_column", "url")))
-    if not caption or not image_uri:
-        return None
-
     id_column = source_cfg.get("id_column")
     image_id = str(item.get(id_column) if id_column else item.get("id", index))
+    caption = resolve_caption(item, source_cfg, features)
+    image_uri = resolve_image_uri(item, source_cfg, image_id, index)
+    if not caption:
+        return None
+
     file_name = str(item.get("file_name") or item.get("filename") or f"{image_id}.jpg")
 
     split_column = source_cfg.get("split_column")
-    source_split = (
+    source_split = normalize_split(source_cfg.get("split_override")) if source_cfg.get("split_override") else None
+    source_split = source_split or (
         normalize_split(item.get(split_column))
         if split_column and bool(metadata_cfg.get("use_source_split_if_available", True))
         else None

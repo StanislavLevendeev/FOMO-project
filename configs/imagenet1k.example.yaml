@@ -1,0 +1,50 @@
+dataset_name: laion1m
+
+source:
+  kind: hf_table
+  hf_dataset: RIW/laion_1m
+  streaming: true
+  image_column: image
+  image_url_column: url
+  caption_column: caption
+  id_column: key
+  max_rows: 1000000
+
+local:
+  output_root: '/home/jovyan/fomo/FOMO-project/data'
+
+metadata:
+  save_raw_images: false
+  use_source_split_if_available: true
+  max_rows_per_file: 100000
+  fallback_split_seed: 42
+  fallback_split_ratios:
+    train: 1.0
+    validation: 0.0
+    test: 0.0
+
+embeddings:
+  batch_size_text: 256
+  batch_size_image: 64
+  device: auto
+  normalize: true
+  max_rows_per_file: 100000
+
+  text_encoder:
+    kind: hf_clip_text
+    model_name: wkcn/TinyCLIP-ViT-39M-16-Text-19M-YFCC15M
+    max_length: 77
+    output_name: tinyclip_vit_39m_16_text_19m_yfcc15m
+
+  image_encoder:
+    kind: dinov3
+    model_name: facebook/dinov3-vits16-pretrain-lvd1689m
+    output_name: dinov3_vits16_pretrain_lvd1689m
+    pooling: cls
+    skip_failed_images: true
+
+publish:
+  hf_repo_id: StanislavLev/tiny-clip-image-encoders-adapter
+  private: true
+runtime:
+  safe_exit: true

@@ -5,7 +5,7 @@ dataset:
   cache_dir: "C:/hf_cache"
 
 # Define the active architecture to use
-active_architecture: "simple_linear"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter"
+active_architecture: "mlp_3layer"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter"
 
 # Global model input/output dimension configurations
 model:

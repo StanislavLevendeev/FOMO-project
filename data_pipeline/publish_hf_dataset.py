@@ -50,7 +50,7 @@ def upload_dataset_tree(api: HfApi, repo_id: str, root: Path, name: str, include
             repo_type="dataset",
             folder_path=str(root),
             path_in_repo=name,
-            ignore_patterns=["**/metadata.csv"],
+            ignore_patterns=["**/metadata.csv", "images/**", "**/images/**"],
             commit_message=f"Upload {name}",
         )
         return

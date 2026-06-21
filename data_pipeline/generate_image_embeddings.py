@@ -14,14 +14,14 @@ from tqdm import tqdm
 
 from data_pipeline.config import load_config, require_abs_path
 from data_pipeline.embedding_utils import batches, l2_normalize, resolve_device, save_split_parquets, write_manifest
-from data_pipeline.paths import encoder_output_dir, metadata_files, output_root, read_metadata
+from data_pipeline.paths import dataset_root, encoder_output_dir, metadata_files, read_metadata
 from data_pipeline.runtime import safe_exit_if_requested
 
 
 def generate_image_embeddings(config_path: str | Path) -> Path:
     config = load_config(config_path)
     raw_root_value = config.get("local", {}).get("raw_root")
-    raw_root = require_abs_path(raw_root_value, "local.raw_root") if raw_root_value else output_root(config)
+    raw_root = require_abs_path(raw_root_value, "local.raw_root") if raw_root_value else dataset_root(config)
 
     embeddings_cfg = config.get("embeddings", {})
     image_cfg = embeddings_cfg.get("image_encoder", {})

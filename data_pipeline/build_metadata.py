@@ -8,7 +8,7 @@ import pandas as pd
 
 from data_pipeline.config import load_config, require_abs_path
 from data_pipeline.embedding_utils import save_split_parquets
-from data_pipeline.paths import dataset_name, metadata_dir
+from data_pipeline.paths import dataset_name, dataset_root, metadata_dir
 from data_pipeline.sources.hf_flickr30k import build_flickr30k_metadata
 from data_pipeline.sources.hf_table import build_hf_table_metadata
 from data_pipeline.validate_metadata import validate_image_paths, validate_metadata_frame
@@ -18,7 +18,7 @@ def build_metadata(config_path: str | Path) -> Path:
     config = load_config(config_path)
 
     raw_root_value = config.get("local", {}).get("raw_root")
-    raw_root = require_abs_path(raw_root_value, "local.raw_root") if raw_root_value else Path.cwd()
+    raw_root = require_abs_path(raw_root_value, "local.raw_root") if raw_root_value else dataset_root(config)
     output_dir = metadata_dir(config)
     output_dir.mkdir(parents=True, exist_ok=True)
 

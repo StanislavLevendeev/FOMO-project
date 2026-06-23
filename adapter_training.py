@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
 import yaml
 import argparse
+import re
+from pathlib import Path
 from data_pipeline.data_loader import LAIONFeatureStore
 
 
@@ -21,6 +23,37 @@ def parse_args():
         help="Path to YAML config file. Defaults to config.yaml.",
     )
     return parser.parse_args()
+
+
+def safe_path_part(value):
+    value = str(value).lower().replace(".", "p")
+    return re.sub(r"[^a-z0-9_-]+", "-", value).strip("-")
+
+
+def build_run_dir(config, arch_name):
+    training_config = config["training"]
+    output_root = Path(training_config.get("models_dir", "models"))
+    early_stopping_label = (
+        f"es-p{training_config.get('early_stopping_patience', 8)}"
+        f"-d{training_config.get('early_stopping_delta', 0.001)}"
+        if training_config.get("use_early_stopping", True)
+        else "es-off"
+    )
+    run_name_parts = [
+        f"active_architecture-{arch_name}",
+        f"bs{training_config['batch_size']}",
+        f"lr{training_config['lr']}",
+        f"wd{training_config['weight_decay']}",
+        f"val{training_config.get('validation_fraction', 0.02)}",
+        early_stopping_label,
+    ]
+    run_name = "_".join(safe_path_part(part) for part in run_name_parts)
+    return output_root / run_name
+
+
+def save_yaml(path, content):
+    with open(path, "w") as f:
+        yaml.safe_dump(content, f, sort_keys=False)
 
 
 # ==========================================
@@ -279,10 +312,6 @@ def main():
         milestones=[warmup_epochs]
     )
 
-    # Save output with name based on active architecture
-    save_prefix = config["training"].get("save_prefix", "dino_to_clip_adapter")
-    save_path = f"{save_prefix}_{arch_name}.pt"
-
     use_early_stopping = bool(config["training"].get("use_early_stopping", True))
     early_stopping_patience = int(config["training"].get("early_stopping_patience", 8))
     early_stopping_delta = float(config["training"].get("early_stopping_delta", 0.001))
@@ -292,10 +321,22 @@ def main():
             "use_early_stopping requires training.validation_fraction > 0.0"
         )
 
+    run_dir = build_run_dir(config, arch_name)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    best_path = run_dir / "best.pt"
+    last_path = run_dir / "last.pt"
+    config_snapshot_path = run_dir / "config.yaml"
+    metrics_path = run_dir / "metrics.yaml"
+    save_yaml(config_snapshot_path, config)
+    print(f"Saving run artifacts to: {run_dir}")
+
     print("\nStarting high-performance training loop...")
     model.train()
     best_val_norm_loss = float("inf")
+    best_val_accuracy = None
     best_epoch = 0
+    last_significant_improvement_epoch = 0
+    last_metrics = {}
     for epoch in range(epochs):
         epoch_loss = 0.0
         epoch_norm_loss = 0.0
@@ -331,6 +372,14 @@ def main():
         avg_norm_loss = epoch_norm_loss / len(dataloader)
         avg_acc = epoch_accuracy / len(dataloader)
         current_temp = 1.0 / model.logit_scale.exp().item()
+        last_metrics = {
+            "epoch": epoch + 1,
+            "train_loss": avg_loss,
+            "train_normalized_loss": avg_norm_loss,
+            "train_accuracy": avg_acc,
+            "temperature": current_temp,
+            "early_stopped": False,
+        }
         log_message = (
             f"Epoch {epoch+1}/{epochs} | Avg Loss: {avg_loss:.3f} | "
             f"Normalized Loss: {avg_norm_loss:.3f} | Accuracy: {avg_acc * 100:.2f}% | "
@@ -339,34 +388,71 @@ def main():
 
         if val_dataloader is not None:
             val_loss, val_norm_loss, val_acc = evaluate(model, val_dataloader, device)
+            last_metrics.update(
+                {
+                    "validation_loss": val_loss,
+                    "validation_normalized_loss": val_norm_loss,
+                    "validation_accuracy": val_acc,
+                }
+            )
             log_message += (
                 f" | Val Loss: {val_loss:.3f} | Val Normalized Loss: {val_norm_loss:.3f} | "
                 f"Val Accuracy: {val_acc * 100:.2f}%"
             )
 
-            if use_early_stopping:
-                improved = val_norm_loss < best_val_norm_loss - early_stopping_delta
-                if improved:
-                    best_val_norm_loss = val_norm_loss
-                    best_epoch = epoch
-                    torch.save(model.state_dict(), save_path)
-                    log_message += " | Saved best checkpoint"
-                elif epoch - best_epoch >= early_stopping_patience:
-                    print(log_message)
-                    print(
-                        f"Early stopping at epoch {epoch + 1}. "
-                        f"Best epoch was {best_epoch + 1} with "
-                        f"Val Normalized Loss: {best_val_norm_loss:.3f}."
-                    )
-                    break
+            improved = val_norm_loss < best_val_norm_loss
+            significant_improvement = (
+                val_norm_loss < best_val_norm_loss - early_stopping_delta
+            )
+            if improved:
+                best_val_norm_loss = val_norm_loss
+                best_val_accuracy = val_acc
+                best_epoch = epoch
+                torch.save(model.state_dict(), best_path)
+                log_message += " | Saved best checkpoint"
+
+            if significant_improvement:
+                last_significant_improvement_epoch = epoch
+            elif (
+                use_early_stopping
+                and epoch - last_significant_improvement_epoch >= early_stopping_patience
+            ):
+                last_metrics["early_stopped"] = True
+                print(log_message)
+                print(
+                    f"Early stopping at epoch {epoch + 1}. "
+                    f"Best epoch was {best_epoch + 1} with "
+                    f"Val Normalized Loss: {best_val_norm_loss:.3f}."
+                )
+                break
 
         print(log_message)
 
-    if use_early_stopping:
-        print(f"\nSaved best adapter checkpoint to {save_path}")
-    else:
-        torch.save(model.state_dict(), save_path)
-        print(f"\nSaved final adapter checkpoint to {save_path}")
+    torch.save(model.state_dict(), last_path)
+    metrics = {
+        "run_dir": str(run_dir),
+        "config_path": args.config,
+        "architecture": arch_name,
+        "last": last_metrics,
+        "best": {
+            "epoch": best_epoch + 1 if best_val_accuracy is not None else None,
+            "validation_normalized_loss": (
+                best_val_norm_loss if best_val_accuracy is not None else None
+            ),
+            "validation_accuracy": best_val_accuracy,
+            "checkpoint": str(best_path) if best_val_accuracy is not None else None,
+        },
+        "checkpoints": {
+            "last": str(last_path),
+            "best": str(best_path) if best_val_accuracy is not None else None,
+        },
+    }
+    save_yaml(metrics_path, metrics)
+
+    print(f"\nSaved last adapter checkpoint to {last_path}")
+    if best_val_accuracy is not None:
+        print(f"Saved best adapter checkpoint to {best_path}")
+    print(f"Saved metrics to {metrics_path}")
 
 
 if __name__ == "__main__":

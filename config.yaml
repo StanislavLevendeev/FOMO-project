@@ -42,7 +42,7 @@ training:
   lr: 0.002          
   weight_decay: 0.01
   epochs: 1000
-  save_prefix: "dino_to_clip_adapter"
+  models_dir: "models"
   validation_fraction: 0.02
   split_seed: 42
   use_early_stopping: true

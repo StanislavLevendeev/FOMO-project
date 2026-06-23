@@ -4,14 +4,23 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
 import yaml
+import argparse
 from data_pipeline.data_loader import LAIONFeatureStore
 
-# Load configuration from YAML file
-config_path = "config.yaml"
-with open(config_path, "r") as f:
-    config = yaml.safe_load(f)
 
-short_cache = config["dataset"]["cache_dir"]
+def load_config(config_path):
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a DINO-to-CLIP adapter.")
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to YAML config file. Defaults to config.yaml.",
+    )
+    return parser.parse_args()
 
 
 # ==========================================
@@ -157,8 +166,13 @@ def evaluate(model, dataloader, device):
 # 4. Training Loop
 # ==========================================
 def main():
+    args = parse_args()
+    config = load_config(args.config)
+    short_cache = config["dataset"]["cache_dir"]
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
+    print(f"Using config: {args.config}")
 
     # Load dataset
     print("Loading data from Hugging Face...")

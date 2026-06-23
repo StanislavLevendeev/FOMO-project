@@ -40,7 +40,7 @@ def build_run_dir(config, arch_name):
         else "es-off"
     )
     run_name_parts = [
-        f"active_architecture-{arch_name}",
+        f"arch-{arch_name}",
         f"bs{training_config['batch_size']}",
         f"lr{training_config['lr']}",
         f"wd{training_config['weight_decay']}",

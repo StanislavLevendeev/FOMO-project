@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
 import yaml
 from data_pipeline.data_loader import LAIONFeatureStore
@@ -126,6 +126,33 @@ def contrastive_loss(img_features, txt_features, logit_scale):
     return loss, norm_loss.item(), accuracy.item()
 
 
+def evaluate(model, dataloader, device):
+    """Evaluate adapter quality on held-out embedding pairs."""
+    model.eval()
+    total_loss = 0.0
+    total_norm_loss = 0.0
+    total_accuracy = 0.0
+
+    with torch.inference_mode():
+        for img, txt in dataloader:
+            img, txt = img.to(device), txt.to(device)
+            projected_img = model(img)
+            loss, norm_loss, accuracy = contrastive_loss(
+                projected_img, txt, model.logit_scale
+            )
+            total_loss += loss.item()
+            total_norm_loss += norm_loss
+            total_accuracy += accuracy
+
+    num_batches = len(dataloader)
+    model.train()
+    return (
+        total_loss / num_batches,
+        total_norm_loss / num_batches,
+        total_accuracy / num_batches,
+    )
+
+
 # ==========================================
 # 4. Training Loop
 # ==========================================
@@ -139,14 +166,58 @@ def main():
         repo_id=config["dataset"]["repo_id"],
         cache_dir=short_cache
     )
-    
+
+    dataset = EmbeddingAlignmentDataset(store)
+    val_fraction = float(config["training"].get("validation_fraction", 0.02))
+    split_seed = int(config["training"].get("split_seed", 42))
+
+    if not 0.0 <= val_fraction < 1.0:
+        raise ValueError("training.validation_fraction must be >= 0.0 and < 1.0")
+
+    val_size = int(len(dataset) * val_fraction)
+    train_size = len(dataset) - val_size
+
+    if val_size > 0:
+        generator = torch.Generator().manual_seed(split_seed)
+        train_dataset, val_dataset = random_split(
+            dataset, [train_size, val_size], generator=generator
+        )
+        print(
+            f"Using {train_size:,} training pairs and {val_size:,} validation pairs "
+            f"(validation_fraction={val_fraction:.3f})."
+        )
+    else:
+        train_dataset = dataset
+        val_dataset = None
+        print("No validation split configured; training on all available pairs.")
+
     dataloader = DataLoader(
-        EmbeddingAlignmentDataset(store), 
+        train_dataset,
         batch_size=config["training"]["batch_size"], 
         shuffle=True, 
         drop_last=True,
         pin_memory=True
     )
+    if len(dataloader) == 0:
+        raise ValueError(
+            "Training split is smaller than one full batch. Reduce training.batch_size "
+            "or lower training.validation_fraction."
+        )
+
+    val_dataloader = None
+    if val_dataset is not None:
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=config["training"]["batch_size"],
+            shuffle=False,
+            drop_last=True,
+            pin_memory=True
+        )
+        if len(val_dataloader) == 0:
+            raise ValueError(
+                "Validation split is smaller than one full batch. Increase "
+                "training.validation_fraction or reduce training.batch_size."
+            )
 
     # Initialize model, optimizer with weight decay, and scheduler based on configuration
     arch_name = config.get("active_architecture", "mlp_2layer")
@@ -194,8 +265,23 @@ def main():
         milestones=[warmup_epochs]
     )
 
+    # Save output with name based on active architecture
+    save_prefix = config["training"].get("save_prefix", "dino_to_clip_adapter")
+    save_path = f"{save_prefix}_{arch_name}.pt"
+
+    use_early_stopping = bool(config["training"].get("use_early_stopping", True))
+    early_stopping_patience = int(config["training"].get("early_stopping_patience", 8))
+    early_stopping_delta = float(config["training"].get("early_stopping_delta", 0.001))
+
+    if use_early_stopping and val_dataloader is None:
+        raise ValueError(
+            "use_early_stopping requires training.validation_fraction > 0.0"
+        )
+
     print("\nStarting high-performance training loop...")
     model.train()
+    best_val_norm_loss = float("inf")
+    best_epoch = 0
     for epoch in range(epochs):
         epoch_loss = 0.0
         epoch_norm_loss = 0.0
@@ -231,14 +317,42 @@ def main():
         avg_norm_loss = epoch_norm_loss / len(dataloader)
         avg_acc = epoch_accuracy / len(dataloader)
         current_temp = 1.0 / model.logit_scale.exp().item()
-        print(f"Epoch {epoch+1}/{epochs} | Avg Loss: {avg_loss:.3f} | Normalized Loss: {avg_norm_loss:.3f} | Accuracy: {avg_acc * 100:.2f}% | Temp Scale: {current_temp:.4f}")
+        log_message = (
+            f"Epoch {epoch+1}/{epochs} | Avg Loss: {avg_loss:.3f} | "
+            f"Normalized Loss: {avg_norm_loss:.3f} | Accuracy: {avg_acc * 100:.2f}% | "
+            f"Temp Scale: {current_temp:.4f}"
+        )
 
-    # Save output with name based on active architecture
-    save_prefix = config["training"].get("save_prefix", "dino_to_clip_adapter")
-    save_path = f"{save_prefix}_{arch_name}.pt"
-        
-    torch.save(model.state_dict(), save_path)
-    print(f"\nSaved robust high-performance adapter to {save_path}")
+        if val_dataloader is not None:
+            val_loss, val_norm_loss, val_acc = evaluate(model, val_dataloader, device)
+            log_message += (
+                f" | Val Loss: {val_loss:.3f} | Val Normalized Loss: {val_norm_loss:.3f} | "
+                f"Val Accuracy: {val_acc * 100:.2f}%"
+            )
+
+            if use_early_stopping:
+                improved = val_norm_loss < best_val_norm_loss - early_stopping_delta
+                if improved:
+                    best_val_norm_loss = val_norm_loss
+                    best_epoch = epoch
+                    torch.save(model.state_dict(), save_path)
+                    log_message += " | Saved best checkpoint"
+                elif epoch - best_epoch >= early_stopping_patience:
+                    print(log_message)
+                    print(
+                        f"Early stopping at epoch {epoch + 1}. "
+                        f"Best epoch was {best_epoch + 1} with "
+                        f"Val Normalized Loss: {best_val_norm_loss:.3f}."
+                    )
+                    break
+
+        print(log_message)
+
+    if use_early_stopping:
+        print(f"\nSaved best adapter checkpoint to {save_path}")
+    else:
+        torch.save(model.state_dict(), save_path)
+        print(f"\nSaved final adapter checkpoint to {save_path}")
 
 
 if __name__ == "__main__":

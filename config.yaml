@@ -43,3 +43,8 @@ training:
   weight_decay: 0.01
   epochs: 1000
   save_prefix: "dino_to_clip_adapter"
+  validation_fraction: 0.02
+  split_seed: 42
+  use_early_stopping: true
+  early_stopping_patience: 10
+  early_stopping_delta: 0.001

@@ -1,0 +1,45 @@
+# FOMO Adapter Configuration
+
+dataset:
+  repo_id: "StanislavLev/tiny-clip-image-encoders-adapter"
+  cache_dir: "C:/hf_cache"
+
+# Define the active architecture to use
+active_architecture: "mlp_3layer"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter"
+
+# Global model input/output dimension configurations
+model:
+  input_dim: 384          # dimension of DINOv3 image embeddings
+  output_dim: 512         # target dimension size (CLIP text embeddings)
+
+# Architectures list
+architectures:
+  simple_linear:
+    type: "mlp"
+    hidden_dims: []       # DinoEmbedding(384) -> linear(384 -> 512) (No activation, layernorm, or dropout is applied)
+
+  mlp_2layer:
+    type: "mlp"
+    hidden_dims: [512]    # DinoEmbedding(384) -> linear(384 -> 512) -> Gelu -> linear(512 -> 512)
+    activation: "GELU"
+    use_layer_norm: true
+    dropout: 0.1
+
+  mlp_3layer:
+    type: "mlp"
+    hidden_dims: [1024, 1024] # DinoEmbedding(384) -> linear(384 -> 1024) -> Gelu -> linear(1024 -> 1024) -> Gelu -> linear(1024 -> 512)
+    activation: "GELU"
+    use_layer_norm: true
+    dropout: 0.1
+
+  residual_adapter:
+    type: "residual"
+    bottleneck_dim: 512   # set to 512 (equal to output_dim) to remove the bottleneck contraction
+    activation: "ReLU"    # Relu activation for the secondary path
+
+training:
+  batch_size: 8192 
+  lr: 0.001          
+  weight_decay: 0.01
+  epochs: 100
+  save_prefix: "dino_to_clip_adapter"

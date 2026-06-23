@@ -409,24 +409,19 @@ def main():
                 f" | Val Loss: {val_loss:.3f} | Val Normalized Loss: {val_norm_loss:.3f} | "
                 f"Val Accuracy: {val_acc * 100:.2f}%"
             )
+            improved = val_norm_loss < best_val_norm_loss - early_stopping_delta
 
-            improved = val_norm_loss < best_val_norm_loss
-            significant_improvement = (
-                val_norm_loss < best_val_norm_loss - early_stopping_delta
-            )
             if improved:
                 best_val_norm_loss = val_norm_loss
                 best_val_accuracy = val_acc
                 best_epoch = epoch
+                bad_epochs = 0
                 torch.save(model.state_dict(), best_path)
                 log_message += " | Saved best checkpoint"
+            else:
+                bad_epochs += 1
 
-            if significant_improvement:
-                last_significant_improvement_epoch = epoch
-            elif (
-                use_early_stopping
-                and epoch - last_significant_improvement_epoch >= early_stopping_patience
-            ):
+            if use_early_stopping and bad_epochs >= early_stopping_patience:
                 last_metrics["early_stopped"] = True
                 print(log_message)
                 print(

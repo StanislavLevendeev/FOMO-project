@@ -56,6 +56,16 @@ def save_yaml(path, content):
         yaml.safe_dump(content, f, sort_keys=False)
 
 
+def resolve_device(device_name):
+    if device_name == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    device = torch.device(device_name)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise ValueError(f"Configured device {device_name!r}, but CUDA is not available.")
+    return device
+
+
 # ==========================================
 # 1. Dataset Mapper
 # ==========================================
@@ -203,7 +213,7 @@ def main():
     config = load_config(args.config)
     short_cache = config["dataset"]["cache_dir"]
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(config["training"].get("device", "auto"))
     print(f"Training on: {device}")
     print(f"Using config: {args.config}")
 

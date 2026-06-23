@@ -147,19 +147,7 @@ class LAIONFeatureStore:
         # Convert to contiguous PyTorch tensors (zero-copy from numpy)
         self.image_embeddings = torch.from_numpy(image_embeddings_np)
         self.text_embeddings = torch.from_numpy(text_embeddings_np)
-        
-        print("Building indexing dictionaries...")
-        # Extract column lists directly to avoid extremely slow row-by-row Arrow deserialization
-        image_ids = image_ds["image_id"]
-        self.image_id_to_image_idx = {
-            image_id: idx for idx, image_id in enumerate(image_ids)
-        }
-        
-        text_image_ids = text_ds["image_id"]
-        self.image_id_to_text_indices: dict[str, list[int]] = {}
-        for idx, image_id in enumerate(text_image_ids):
-            self.image_id_to_text_indices.setdefault(image_id, []).append(idx)
-        print("Indexing complete.")
+        print("Embeddings loaded. Sequential 1-to-1 matching is ready.")
 
     @classmethod
     def from_hub(
@@ -169,17 +157,31 @@ class LAIONFeatureStore:
     ) -> "LAIONFeatureStore":
         cache_dir_str = str(cache_dir) if cache_dir else None
         
-        print(f"Loading LAION 1M dataset from {repo_id}...")
+        print(f"Listing repo files for {repo_id}...")
+        from huggingface_hub import list_repo_files
+        all_files = list_repo_files(repo_id, repo_type="dataset")
+        
+        # Sort files alphabetically to ensure aligned 1-to-1 order across images and texts
+        image_files = sorted([
+            f for f in all_files 
+            if f.startswith("laion1m/image_embeddings/") and f.endswith(".parquet")
+        ])
+        text_files = sorted([
+            f for f in all_files 
+            if f.startswith("laion1m/text_embeddings/") and f.endswith(".parquet")
+        ])
+        
+        print(f"Loading {len(image_files)} image files and {len(text_files)} text files from LAION 1M dataset...")
         image_ds = load_dataset(
             repo_id,
-            data_files="laion1m/image_embeddings/**/*.parquet",
+            data_files=image_files,
             split="train",
             cache_dir=cache_dir_str,
         )
 
         text_ds = load_dataset(
             repo_id,
-            data_files="laion1m/text_embeddings/**/*.parquet",
+            data_files=text_files,
             split="train",
             cache_dir=cache_dir_str,
         )
@@ -191,11 +193,3 @@ class LAIONFeatureStore:
             image_ds=image_ds,
             text_ds=text_ds,
         )
-
-    def get_image_embedding(self, image_id: str) -> torch.Tensor:
-        idx = self.image_id_to_image_idx[image_id]
-        return self.image_embeddings[idx]
-
-    def get_text_embeddings_for_image(self, image_id: str) -> torch.Tensor:
-        indices = self.image_id_to_text_indices[image_id]
-        return self.text_embeddings[indices]

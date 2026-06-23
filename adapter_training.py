@@ -18,23 +18,15 @@ short_cache = config["dataset"]["cache_dir"]
 # 1. Dataset Mapper
 # ==========================================
 class EmbeddingAlignmentDataset(Dataset):
-    """Pairs each image embedding with all its matching text embeddings."""
+    """Pairs each image embedding with its matching text embedding sequentially (1-to-1)."""
     def __init__(self, store: LAIONFeatureStore):
         self.store = store
-        self.pairs = []
-
-        for image_id, text_indices in store.image_id_to_text_indices.items():
-            if image_id in store.image_id_to_image_idx:
-                img_idx = store.image_id_to_image_idx[image_id]
-                for txt_idx in text_indices:
-                    self.pairs.append((img_idx, txt_idx))
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.store.image_embeddings)
 
     def __getitem__(self, idx):
-        img_idx, txt_idx = self.pairs[idx]
-        return self.store.image_embeddings[img_idx], self.store.text_embeddings[txt_idx]
+        return self.store.image_embeddings[idx], self.store.text_embeddings[idx]
 
 
 # ==========================================

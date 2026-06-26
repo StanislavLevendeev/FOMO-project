@@ -1,0 +1,21 @@
+run_dir: models\arch-mlp_3layer_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001
+config_path: config.yaml
+architecture: mlp_3layer
+last:
+  epoch: 21
+  train_loss: 2.112639153105581
+  train_normalized_loss: 0.2344533980656893
+  train_accuracy: 0.5066773504273504
+  temperature: 0.012028867372816882
+  early_stopped: true
+  validation_loss: 2.8075841665267944
+  validation_normalized_loss: 0.3115759938955307
+  validation_accuracy: 0.41064453125
+best:
+  epoch: 11
+  validation_normalized_loss: 0.30153994262218475
+  validation_accuracy: 0.4183349609375
+  checkpoint: models\arch-mlp_3layer_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001\best.pt
+checkpoints:
+  last: models\arch-mlp_3layer_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001\last.pt
+  best: models\arch-mlp_3layer_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001\best.pt

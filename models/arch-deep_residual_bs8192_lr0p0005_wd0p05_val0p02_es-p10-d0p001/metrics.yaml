@@ -1,0 +1,21 @@
+run_dir: models\arch-deep_residual_bs8192_lr0p0005_wd0p05_val0p02_es-p10-d0p001
+config_path: config.yaml
+architecture: deep_residual
+last:
+  epoch: 50
+  train_loss: 2.4791456022833147
+  train_normalized_loss: 0.27512701785462534
+  train_accuracy: 0.4561084193042201
+  temperature: 0.023471343935538326
+  early_stopped: false
+  validation_loss: 2.573314666748047
+  validation_normalized_loss: 0.28557758033275604
+  validation_accuracy: 0.442962646484375
+best:
+  epoch: 41
+  validation_normalized_loss: 0.28652551770210266
+  validation_accuracy: 0.441253662109375
+  checkpoint: models\arch-deep_residual_bs8192_lr0p0005_wd0p05_val0p02_es-p10-d0p001\best.pt
+checkpoints:
+  last: models\arch-deep_residual_bs8192_lr0p0005_wd0p05_val0p02_es-p10-d0p001\last.pt
+  best: models\arch-deep_residual_bs8192_lr0p0005_wd0p05_val0p02_es-p10-d0p001\best.pt

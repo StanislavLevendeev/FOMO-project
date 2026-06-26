@@ -52,18 +52,23 @@ def get_adapter(config_path="config.yaml", device="cpu"):
         matching_dirs = []
         for d in models_dir.iterdir():
             if d.is_dir() and arch_name.replace("_", "") in d.name.replace("_", ""):
-                # Prioritize directories that have best.pt
-                if (d / "best.pt").exists() or (d / "last.pt").exists():
-                    matching_dirs.append(d)
+                # Find any .pt file in the directory
+                pt_files = list(d.glob("*.pt"))
+                if pt_files:
+                    matching_dirs.append((d, pt_files))
         
         # Sort by modification time (newest first)
         if matching_dirs:
-            matching_dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-            latest_run = matching_dirs[0]
+            matching_dirs.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
+            latest_run, pt_files = matching_dirs[0]
+            
+            # Prioritize best.pt, then last.pt, then just take the first .pt file
             if (latest_run / "best.pt").exists():
                 found_model_path = latest_run / "best.pt"
-            else:
+            elif (latest_run / "last.pt").exists():
                 found_model_path = latest_run / "last.pt"
+            else:
+                found_model_path = pt_files[0]
                 
     # Fallback to root directory if not found in models/
     if not found_model_path:
@@ -85,7 +90,7 @@ def get_adapter(config_path="config.yaml", device="cpu"):
         
     model.to(device)
     model.eval()
-    return model, arch_name
+    return model, arch_name, found_model_path.parent.name, found_model_path.name
 
 def evaluate_imagenet(adapter, device, batch_size):
     print("\n--- Evaluating on ImageNet-1K ---")
@@ -177,9 +182,10 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    adapter, arch_name = get_adapter(device=device)
+    adapter, arch_name, folder_name, weights_filename = get_adapter(device=device)
     
     print(f"\nEvaluating Adapter: {arch_name}")
+    print(f"Loaded Weights: {folder_name}/{weights_filename}")
     
     in_top1, in_top5 = evaluate_imagenet(adapter, device, args.batch_size)
     f_i2t, f_t2i = evaluate_flickr30k(adapter, device, args.batch_size)

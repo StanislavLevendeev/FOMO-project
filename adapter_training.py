@@ -147,6 +147,47 @@ class ResidualAdapter(nn.Module):
         return F.normalize(out, p=2, dim=-1)
 
 
+class DeepResidualBlock(nn.Module):
+    def __init__(self, dim, dropout=0.1):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.linear1 = nn.Linear(dim, dim)
+        self.act = nn.GELU()
+        self.dropout1 = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()
+        self.linear2 = nn.Linear(dim, dim)
+        self.dropout2 = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()
+
+    def forward(self, x):
+        out = self.norm(x)
+        out = self.linear1(out)
+        out = self.act(out)
+        out = self.dropout1(out)
+        out = self.linear2(out)
+        out = self.dropout2(out)
+        return x + out
+
+
+class DeepResidualAdapter(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_blocks=6, dropout=0.1):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        
+        self.blocks = nn.Sequential(*[
+            DeepResidualBlock(hidden_dim, dropout=dropout) for _ in range(num_blocks)
+        ])
+        
+        self.output_proj = nn.Linear(hidden_dim, output_dim)
+        # Learnable logit scale parameter (initialized to CLIP's default of 2.6592)
+        self.logit_scale = nn.Parameter(torch.ones([]) * 2.6592)
+
+    def forward(self, x):
+        x = self.input_proj(x)
+        x = self.blocks(x)
+        projected = self.output_proj(x)
+        # Apply L2 normalization for cosine similarity compatibility
+        return F.normalize(projected, p=2, dim=-1)
+
+
 # ==========================================
 # 3. Dynamic Contrastive Loss (InfoNCE)
 # ==========================================
@@ -296,6 +337,14 @@ def main():
             output_dim=config["model"]["output_dim"],
             bottleneck_dim=arch_config["bottleneck_dim"],
             activation=arch_config.get("activation", "ReLU")
+        ).to(device)
+    elif arch_config["type"] == "deep_residual":
+        model = DeepResidualAdapter(
+            input_dim=config["model"]["input_dim"],
+            hidden_dim=arch_config["hidden_dim"],
+            output_dim=config["model"]["output_dim"],
+            num_blocks=arch_config.get("num_blocks", 6),
+            dropout=arch_config.get("dropout", 0.1)
         ).to(device)
     else:
         raise ValueError(f"Unknown architecture type: {arch_config['type']}")

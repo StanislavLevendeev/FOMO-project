@@ -5,7 +5,7 @@ dataset:
   cache_dir: "C:/hf_cache"
 
 # Define the active architecture to use
-active_architecture: "mlp_3layer"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter"
+active_architecture: "deep_residual"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter", "deep_residual"
 
 # Global model input/output dimension configurations
 model:
@@ -37,10 +37,16 @@ architectures:
     bottleneck_dim: 512   # set to 512 (equal to output_dim) to remove the bottleneck contraction
     activation: "ReLU"    # Relu activation for the secondary path
 
+  deep_residual:
+    type: "deep_residual"
+    hidden_dim: 4096
+    num_blocks: 6
+    dropout: 0.1
+
 training:
   device: "auto" # "cuda" or "cpu" or "auto", "cuda:0" for specific GPU
   batch_size: 8192 
-  lr: 0.002          
+  lr:  0.002 # 0.0005         
   weight_decay: 0.01
   epochs: 1000
   models_dir: "models"

@@ -1,0 +1,21 @@
+run_dir: models/arch-simple_linear_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001
+config_path: config-lr.yaml
+architecture: simple_linear
+last:
+  epoch: 35
+  train_loss: 2.9857054877484965
+  train_normalized_loss: 0.33134328656726414
+  train_accuracy: 0.38064131777510685
+  temperature: 0.010857034086110448
+  early_stopped: true
+  validation_loss: 3.061766743659973
+  validation_normalized_loss: 0.33978429436683655
+  validation_accuracy: 0.367919921875
+best:
+  epoch: 25
+  validation_normalized_loss: 0.3407577723264694
+  validation_accuracy: 0.365325927734375
+  checkpoint: models/arch-simple_linear_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001/best.pt
+checkpoints:
+  last: models/arch-simple_linear_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001/last.pt
+  best: models/arch-simple_linear_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001/best.pt

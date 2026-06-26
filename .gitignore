@@ -8,4 +8,4 @@ data/
 
 dino_to_clip_adapter_deep_residual.pt
 
-models/*/*.pt
+#models/*/*.pt

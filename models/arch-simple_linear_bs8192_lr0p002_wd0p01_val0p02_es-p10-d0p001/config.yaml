@@ -1,0 +1,42 @@
+dataset:
+  repo_id: StanislavLev/tiny-clip-image-encoders-adapter
+  cache_dir: /home/jovyan/fomo/cache
+active_architecture: simple_linear
+model:
+  input_dim: 384
+  output_dim: 512
+architectures:
+  simple_linear:
+    type: mlp
+    hidden_dims: []
+  mlp_2layer:
+    type: mlp
+    hidden_dims:
+    - 512
+    activation: GELU
+    use_layer_norm: true
+    dropout: 0.1
+  mlp_3layer:
+    type: mlp
+    hidden_dims:
+    - 1024
+    - 1024
+    activation: GELU
+    use_layer_norm: true
+    dropout: 0.1
+  residual_adapter:
+    type: residual
+    bottleneck_dim: 512
+    activation: ReLU
+training:
+  device: cuda:4
+  batch_size: 8192
+  lr: 0.002
+  weight_decay: 0.01
+  epochs: 1000
+  models_dir: models
+  validation_fraction: 0.02
+  split_seed: 42
+  use_early_stopping: true
+  early_stopping_patience: 10
+  early_stopping_delta: 0.001

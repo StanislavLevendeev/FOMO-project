@@ -1,0 +1,19 @@
+flickr30k_test_image_to_text_at_1: 0.594
+flickr30k_test_text_to_image_at_1: 0.4056
+imagenet_top1: 0.46422
+imagenet_top5: 0.76194
+imagenet_num_classes: 1000.0
+dataset: laion1m
+image_encoder: dinov3_vits16_pretrain_lvd1689m
+architecture: simple_linear
+adapter_direction: text_to_image
+batch_size: 8192
+lr: 0.002
+weight_decay: 0.01
+checkpoint: models/laion1m/dinov3_vits16_pretrain_lvd1689m/text_adapter-arch-simple_linear_bs8192_lr0p002_wd0p01_val0p02_es-p10-d0p001/best.pt
+metric_unit: fraction
+metric_percent_note: Columns ending in _percent are metric * 100.
+flickr30k_test_image_to_text_at_1_percent: 59.4
+flickr30k_test_text_to_image_at_1_percent: 40.56
+imagenet_top1_percent: 46.422000000000004
+imagenet_top5_percent: 76.19399999999999

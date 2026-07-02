@@ -5,6 +5,7 @@ import os
 os.environ["HF_HUB_CACHE"] = "C:/hf_cache/hub"
 os.environ["HF_DATASETS_CACHE"] = "C:/hf_cache/datasets"
 
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,9 @@ class TinyCLIPFeatureStore:
         return self.image_id_to_captions.get(image_id, [])
 
 class LAIONFeatureStore:
+    DEFAULT_IMAGE_EMBEDDING_FOLDER = "dinov3_vits16_pretrain_lvd1689m"
+    DEFAULT_TEXT_EMBEDDING_FOLDER = "tinyclip_vit_39m_16_text_19m_yfcc15m"
+
     def __init__(
         self,
         repo_id: str,
@@ -131,60 +135,148 @@ class LAIONFeatureStore:
         cache_dir: Path | None,
         image_ds: Any,
         text_ds: Any,
+        metadata_ds: Any,
+        alignment_report: dict[str, Any],
+        image_embedding_folder: str,
+        text_embedding_folder: str,
     ):
         self.repo_id = repo_id
         self.split = split
         self.cache_dir = cache_dir
-        
+        self.image_embedding_folder = image_embedding_folder
+        self.text_embedding_folder = text_embedding_folder
+        self.alignment_report = alignment_report
+
         self.image_ds = image_ds
         self.text_ds = text_ds
-        
-        print("Loading embeddings into memory...")
-        # Extract only the "embedding" column to avoid allocating GBs of memory for string columns
+        self.metadata_ds = metadata_ds
+
+        print("Loading aligned embeddings into memory...")
         image_embeddings_np = image_ds.with_format("numpy", columns=["embedding"])[:]["embedding"]
         text_embeddings_np = text_ds.with_format("numpy", columns=["embedding"])[:]["embedding"]
-        
-        # Convert to contiguous PyTorch tensors (zero-copy from numpy)
+
         self.image_embeddings = torch.from_numpy(image_embeddings_np)
         self.text_embeddings = torch.from_numpy(text_embeddings_np)
-        print("Embeddings loaded. Sequential 1-to-1 matching is ready.")
+        print(f"Embeddings loaded with metadata alignment: {alignment_report}")
+
+    @staticmethod
+    def _select_files(all_files: list[str], folder: str) -> list[str]:
+        files = sorted([f for f in all_files if f.startswith(folder) and f.endswith(".parquet")])
+        if not files:
+            raise FileNotFoundError(f"No parquet files found under {folder!r}")
+        return files
+
+    @staticmethod
+    def _alignment_order(source_keys: list[Any], target_keys: list[Any], label: str) -> tuple[list[int] | None, dict[str, Any]]:
+        if len(source_keys) != len(target_keys):
+            raise ValueError(
+                f"{label}: source/target length mismatch: "
+                f"{len(source_keys)} vs {len(target_keys)}"
+            )
+
+        first_mismatch = next(
+            (idx for idx, (source, target) in enumerate(zip(source_keys, target_keys)) if source != target),
+            None,
+        )
+        if first_mismatch is None:
+            return None, {
+                "label": label,
+                "rows": len(source_keys),
+                "reordered": False,
+                "first_mismatch": None,
+            }
+
+        positions: dict[Any, deque[int]] = defaultdict(deque)
+        for idx, key in enumerate(source_keys):
+            positions[key].append(idx)
+
+        order: list[int] = []
+        missing: list[Any] = []
+        for key in target_keys:
+            if positions[key]:
+                order.append(positions[key].popleft())
+            else:
+                missing.append(key)
+                if len(missing) >= 10:
+                    break
+
+        unused = sum(len(values) for values in positions.values())
+        if missing or unused:
+            raise ValueError(
+                f"{label}: cannot align to metadata order; "
+                f"missing examples={missing[:5]}, unused source rows={unused}"
+            )
+
+        return order, {
+            "label": label,
+            "rows": len(source_keys),
+            "reordered": True,
+            "first_mismatch": int(first_mismatch),
+        }
 
     @classmethod
     def from_hub(
         cls,
         repo_id: str = "StanislavLev/tiny-clip-image-encoders-adapter",
         cache_dir: str | Path | None = None,
+        image_embedding_folder: str | None = None,
+        text_embedding_folder: str | None = None,
     ) -> "LAIONFeatureStore":
         cache_dir_str = str(cache_dir) if cache_dir else None
-        
+        image_embedding_folder = image_embedding_folder or cls.DEFAULT_IMAGE_EMBEDDING_FOLDER
+        text_embedding_folder = text_embedding_folder or cls.DEFAULT_TEXT_EMBEDDING_FOLDER
+
         print(f"Listing repo files for {repo_id}...")
         from huggingface_hub import list_repo_files
         all_files = list_repo_files(repo_id, repo_type="dataset")
-        
-        # Sort files alphabetically to ensure aligned 1-to-1 order across images and texts
-        image_files = sorted([
-            f for f in all_files 
-            if f.startswith("laion1m/image_embeddings/") and f.endswith(".parquet")
-        ])
-        text_files = sorted([
-            f for f in all_files 
-            if f.startswith("laion1m/text_embeddings/") and f.endswith(".parquet")
-        ])
-        
-        print(f"Loading {len(image_files)} image files and {len(text_files)} text files from LAION 1M dataset...")
+
+        image_files = cls._select_files(
+            all_files, f"laion1m/image_embeddings/{image_embedding_folder}/"
+        )
+        text_files = cls._select_files(
+            all_files, f"laion1m/text_embeddings/{text_embedding_folder}/"
+        )
+        metadata_files = cls._select_files(all_files, "laion1m/metadata/")
+
+        print(
+            f"Loading LAION 1M with image={image_embedding_folder} "
+            f"({len(image_files)} files), text={text_embedding_folder} "
+            f"({len(text_files)} files), metadata ({len(metadata_files)} files)."
+        )
         image_ds = load_dataset(
             repo_id,
             data_files=image_files,
             split="train",
             cache_dir=cache_dir_str,
         )
-
         text_ds = load_dataset(
             repo_id,
             data_files=text_files,
             split="train",
             cache_dir=cache_dir_str,
         )
+        metadata_ds = load_dataset(
+            repo_id,
+            data_files=metadata_files,
+            split="train",
+            cache_dir=cache_dir_str,
+        )
+
+        image_order, image_report = cls._alignment_order(
+            list(image_ds["image_uri"]),
+            list(metadata_ds["image_uri"]),
+            f"laion1m/{image_embedding_folder}/image",
+        )
+        if image_order is not None:
+            image_ds = image_ds.select(image_order)
+
+        text_order, text_report = cls._alignment_order(
+            list(text_ds["caption_id"]),
+            list(metadata_ds["caption_id"]),
+            f"laion1m/{text_embedding_folder}/text",
+        )
+        if text_order is not None:
+            text_ds = text_ds.select(text_order)
 
         return cls(
             repo_id=repo_id,
@@ -192,4 +284,12 @@ class LAIONFeatureStore:
             cache_dir=Path(cache_dir) if cache_dir else None,
             image_ds=image_ds,
             text_ds=text_ds,
+            metadata_ds=metadata_ds,
+            alignment_report={
+                "metadata_rows": len(metadata_ds),
+                "image": image_report,
+                "text": text_report,
+            },
+            image_embedding_folder=image_embedding_folder,
+            text_embedding_folder=text_embedding_folder,
         )

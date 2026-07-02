@@ -3,6 +3,8 @@
 dataset:
   repo_id: "StanislavLev/tiny-clip-image-encoders-adapter"
   cache_dir: "C:/hf_cache"
+  image_embedding_folder: "dinov3_vitb16_pretrain_lvd1689m"
+  text_embedding_folder: "tinyclip_vit_39m_16_text_19m_yfcc15m"
 
 # Define the active architecture to use
 active_architecture: "simple_linear"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter", "deep_residual"

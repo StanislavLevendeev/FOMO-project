@@ -29,6 +29,23 @@ def safe_path_part(value):
     value = str(value).lower().replace(".", "p")
     return re.sub(r"[^a-z0-9_-]+", "-", value).strip("-")
 
+def infer_image_embedding_folder(config):
+    dataset_config = config.get("dataset", {})
+    explicit = dataset_config.get("image_embedding_folder") or dataset_config.get("image_embedding_set")
+    if explicit:
+        return explicit
+
+    input_dim = int(config.get("model", {}).get("input_dim", 384))
+    if input_dim == 384:
+        return "dinov3_vits16_pretrain_lvd1689m"
+    if input_dim == 768:
+        return "dinov3_vitb16_pretrain_lvd1689m"
+    if input_dim == 1024:
+        return "dinov3_vitl16_pretrain_lvd1689m"
+    raise ValueError(
+        f"Cannot infer LAION image embedding folder for input_dim={input_dim}. "
+        "Set dataset.image_embedding_folder explicitly."
+    )
 
 def build_run_dir(config, arch_name):
     training_config = config["training"]
@@ -261,11 +278,19 @@ def main():
     print(f"Training on: {device}")
     print(f"Using config: {args.config}")
 
+    image_embedding_folder = infer_image_embedding_folder(config)
+
+    text_embedding_folder = config.get("dataset", {}).get(
+        "text_embedding_folder",
+        "tinyclip_vit_39m_16_text_19m_yfcc15m",
+    )
     # Load dataset
     print("Loading data from Hugging Face...")
     store = LAIONFeatureStore.from_hub(
         repo_id=config["dataset"]["repo_id"],
-        cache_dir=short_cache
+        cache_dir=short_cache,
+        image_embedding_folder=image_embedding_folder,
+        text_embedding_folder=text_embedding_folder
     )
 
     dataset = EmbeddingAlignmentDataset(store)

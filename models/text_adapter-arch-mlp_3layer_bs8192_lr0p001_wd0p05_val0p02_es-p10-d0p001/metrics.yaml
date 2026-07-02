@@ -1,0 +1,21 @@
+run_dir: models\text_adapter-arch-mlp_3layer_bs8192_lr0p001_wd0p05_val0p02_es-p10-d0p001
+config_path: config.yaml
+architecture: mlp_3layer
+last:
+  epoch: 24
+  train_loss: 2.297530396371825
+  train_normalized_loss: 0.2549719890722862
+  train_accuracy: 0.4879400791266026
+  temperature: 0.020539149541437225
+  early_stopped: true
+  validation_loss: 3.022671103477478
+  validation_normalized_loss: 0.3354455977678299
+  validation_accuracy: 0.393768310546875
+best:
+  epoch: 14
+  validation_normalized_loss: 0.329627200961113
+  validation_accuracy: 0.39508056640625
+  checkpoint: models\text_adapter-arch-mlp_3layer_bs8192_lr0p001_wd0p05_val0p02_es-p10-d0p001\best.pt
+checkpoints:
+  last: models\text_adapter-arch-mlp_3layer_bs8192_lr0p001_wd0p05_val0p02_es-p10-d0p001\last.pt
+  best: models\text_adapter-arch-mlp_3layer_bs8192_lr0p001_wd0p05_val0p02_es-p10-d0p001\best.pt

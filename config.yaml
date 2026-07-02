@@ -5,7 +5,7 @@ dataset:
   cache_dir: "C:/hf_cache"
 
 # Define the active architecture to use
-active_architecture: "deep_residual"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter", "deep_residual"
+active_architecture: "simple_linear"  # Options: "simple_linear", "mlp_2layer", "mlp_3layer", "residual_adapter", "deep_residual"
 
 # Global model input/output dimension configurations
 model:
@@ -46,7 +46,7 @@ architectures:
 training:
   device: "auto" # "cuda" or "cpu" or "auto", "cuda:0" for specific GPU
   batch_size: 8192 
-  lr:  0.0005 #0.001         
+  lr:  0.001 #0.0005      
   weight_decay: 0.05
   epochs: 50
   models_dir: "models"
